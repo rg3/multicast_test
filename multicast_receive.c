@@ -33,6 +33,7 @@ struct MulticastEndpoint
 {
     struct in_addr multicast;
     in_port_t port;
+    int bind_any;
 
     int num_interfaces;
     struct in_addr interfaces[MAX_INTERFACES];
@@ -53,7 +54,7 @@ struct Sockets
 /*
  * Expected string format:
  *
- * MULTICAST_IP:PORT:INTERFACE_IP[,INTERFACE_IP...]
+ * [*]MULTICAST_IP:PORT:INTERFACE_IP[,INTERFACE_IP...]
  *
  */
 int make_endpoint(const char *str, struct MulticastEndpoint *out)
@@ -63,6 +64,17 @@ int make_endpoint(const char *str, struct MulticastEndpoint *out)
     char *port_str = NULL;
     struct in_addr ip;
     int retcode = 0;
+
+    // Find optional asterisk.
+    if (str[0] == '*')
+    {
+        ++str;
+        out->bind_any = 1;
+    }
+    else
+    {
+        out->bind_any = 0;
+    }
 
     // Find first colon.
     c = strchr(str, ':');
@@ -237,16 +249,23 @@ int endpoints_to_sockets(const struct ProcessEndpoints *in,
             return 2;
         }
 
-        // Bind to multicast address.
+        // Bind to listening address.
         bind_addr.sin_family = AF_INET;
         bind_addr.sin_port = in->endpoints[i].port;
-        memcpy(&(bind_addr.sin_addr),
-               &(in->endpoints[i].multicast),
-               sizeof(in->endpoints[i].multicast));
+        if (in->endpoints[i].bind_any)
+        {
+            bind_addr.sin_addr.s_addr = INADDR_ANY;
+        }
+        else
+        {
+            memcpy(&(bind_addr.sin_addr),
+                   &(in->endpoints[i].multicast),
+                   sizeof(in->endpoints[i].multicast));
+        }
         if (bind(s, (const struct sockaddr *)(&bind_addr),
                  sizeof(bind_addr)) != 0)
         {
-            perror("Error binding to multicast address");
+            perror("Error binding to listening address");
             return 3;
         }
 
@@ -395,7 +414,7 @@ int main(int argc, char *argv[])
     if (argc <= 1)
     {
         fprintf(stderr, "Usage: %s "
-                "MULTICAST_IP:PORT:INTERFACE_IP[,INTERFACE_IP...] ...\n",
+                "[*]MULTICAST_IP:PORT:INTERFACE_IP[,INTERFACE_IP...] ...\n",
                 argv[0]);
         return 1;
     }
