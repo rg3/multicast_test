@@ -416,6 +416,13 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Usage: %s "
                 "[*]MULTICAST_IP:PORT:INTERFACE_IP[,INTERFACE_IP...] ...\n",
                 argv[0]);
+        fprintf(stderr, "\n");
+        fprintf(stderr,
+                "Creates one UDP socket per argument. Each socket will be\n"
+                "bound to the given port, and the multicast address will be\n"
+                "added for each given interface IP address. The binding\n"
+                "address will be the multicast IP itself, or INADDR_ANY if\n"
+                "preceded by an asterisk.\n\n");
         return 1;
     }
 
