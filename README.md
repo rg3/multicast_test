@@ -16,7 +16,7 @@ How to Use
     
 3.  to receive ssm multicast: 
 
-     ./multicast_receive 239.1.1.1:1234:192.168.1.132:192.168.2.100
+     ./multicast_receive 239.1.1.1 : 1234 : 192.168.1.132 : 192.168.2.100
      
      239.1.1.1 is multicast group as destination ip,  1234 is udp port
      
