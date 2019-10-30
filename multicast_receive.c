@@ -32,7 +32,7 @@
 #define READ_BUFFER_SIZE (256*1024)
 
 const char *log_file = "multicast_receive.log";
-FILE  *log_fd;
+FILE  *log_fd = NULL;
 
 struct MulticastEndpoint
 {
@@ -57,20 +57,10 @@ struct Sockets
     int sockets[MAX_SOCKETS];
 };
 
-void flog(const char *fmt, ...) {
-    va_list arguments;
-    va_start ( arguments, fmt );
-
-    log_fd = fopen(log_file, "a+");
-    if (log_fd == NULL) {
-        printf("open log file %s failed\n", log_file);
-        return;
-    }
-
-    printf(fmt, arguments);
-    fprintf(log_fd, fmt, arguments);
-    va_end ( arguments );
-    fclose(log_fd);
+char buf[1024];
+void flog(const char *fmt) {
+    printf(fmt);
+    fprintf(log_fd, fmt);
 }
 
 /*
@@ -334,9 +324,11 @@ int endpoints_to_sockets(const struct ProcessEndpoints *in,
             }
         }
 
-        flog("Multicast address number %d: "
+        memset(buf, 0, sizeof(buf));
+        sprintf(buf,"Multicast address number %d: "
              "created file descriptor %d on %d interfaces\n",
              i + 1, s, in->endpoints[i].num_interfaces);
+        flog(buf);
     }
 
     return 0;
@@ -419,12 +411,14 @@ void poll_sockets(const struct Sockets *in)
                 {
                     read_count = read(fds[i].fd, buffer, READ_BUFFER_SIZE);
                     gettimeofday(&tv, NULL);
-                    flog("%lld.%06lld read %lld bytes%s from socket %d\n",
-                           (long long)(tv.tv_sec),
-                           (long long)(tv.tv_usec),
-                           (long long)(read_count),
-                           (read_count >= READ_BUFFER_SIZE?" (or more)":""),
-                           fds[i].fd);
+                    memset(buf, 0, sizeof(buf));
+                    sprintf(buf, "%lld.%06lld read %lld bytes %s from socket %d\n",
+                            (long long)(tv.tv_sec),
+                            (long long)(tv.tv_usec),
+                            (long long)(read_count),
+                            (read_count >= READ_BUFFER_SIZE?" (or more)":""),
+                            fds[i].fd);
+                    flog(buf);
                 }
             }
         }
@@ -474,6 +468,12 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    log_fd = fopen(log_file, "a");
+    if (log_fd == NULL) {
+        fprintf(stderr, "open log file %s failed because %d\n", log_file, errno);
+        return 4;
+    }
+
     ret = make_all_endpoints(argc, argv, &pe);
     if (ret != 0)
     {
@@ -485,9 +485,9 @@ int main(int argc, char *argv[])
     {
         return 3;
     }
-
     poll_sockets(&socks);
     close_sockets(&socks);
+    fclose(log_fd);
 
     return 0;
 }
