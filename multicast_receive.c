@@ -24,14 +24,20 @@
 #include <poll.h>
 #include <errno.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <stdarg.h>
 
 #define MAX_INTERFACES   (20)
 #define MAX_SOCKETS      (50)
 #define READ_BUFFER_SIZE (256*1024)
 
+const char *log_file = "multicast_receive.log";
+FILE  *log_fd;
+
 struct MulticastEndpoint
 {
     struct in_addr multicast;
+    struct in_addr source;
     in_port_t port;
     int bind_any;
 
@@ -51,10 +57,26 @@ struct Sockets
     int sockets[MAX_SOCKETS];
 };
 
+void flog(const char *fmt, ...) {
+    va_list arguments;
+    va_start ( arguments, fmt );
+
+    log_fd = fopen(log_file, "a+");
+    if (log_fd == NULL) {
+        printf("open log file %s failed\n", log_file);
+        return;
+    }
+
+    printf(fmt, arguments);
+    fprintf(log_fd, fmt, arguments);
+    va_end ( arguments );
+    fclose(log_fd);
+}
+
 /*
  * Expected string format:
  *
- * [*]MULTICAST_IP:PORT:INTERFACE_IP[,INTERFACE_IP...]
+ * [*]MULTICAST_IP:PORT:SOURCE_IP:INTERFACE_IP[,INTERFACE_IP...]
  *
  */
 int make_endpoint(const char *str, struct MulticastEndpoint *out)
@@ -127,6 +149,29 @@ int make_endpoint(const char *str, struct MulticastEndpoint *out)
         goto out;
     }
     out->port = htons((uint16_t)port);
+
+    // Find source ip.
+    str = c + 1;
+    c = strchr(str, ':');
+    if (c == NULL)
+    {
+        retcode = 20;
+        goto out;
+    }
+
+    // Duplicate and parse multicast IP string.
+    ip_str = strndup(str, c - str);
+    if (! ip_str)
+    {
+        retcode = 21;
+        goto out;
+    }
+
+    if (! inet_pton(AF_INET, ip_str, &(out->source)))
+    {
+        retcode = 22;
+        goto out;
+    }
 
     // Parse interface addresses.
     str = c + 1;
@@ -223,7 +268,7 @@ int endpoints_to_sockets(const struct ProcessEndpoints *in,
                          struct Sockets *out)
 {
     struct sockaddr_in bind_addr;
-    struct ip_mreq mreq;
+    struct ip_mreq_source mreq;
     int i;
     int j;
     int s;
@@ -278,7 +323,10 @@ int endpoints_to_sockets(const struct ProcessEndpoints *in,
             memcpy(&(mreq.imr_interface),
                    &(in->endpoints[i].interfaces[j]),
                    sizeof(in->endpoints[i].interfaces[j]));
-            if (setsockopt(s, IPPROTO_IP, IP_ADD_MEMBERSHIP,
+            memcpy(&(mreq.imr_sourceaddr),
+                    &(in->endpoints[i].source),
+                    sizeof(in->endpoints[i].source));
+            if (setsockopt(s, IPPROTO_IP, IP_ADD_SOURCE_MEMBERSHIP,
                            &mreq, sizeof(mreq)) != 0)
             {
                 perror("Error adding multicast group membership");
@@ -286,9 +334,9 @@ int endpoints_to_sockets(const struct ProcessEndpoints *in,
             }
         }
 
-        printf("Multicast address number %d: "
-               "created file descriptor %d on %d interfaces\n",
-               i + 1, s, in->endpoints[i].num_interfaces);
+        flog("Multicast address number %d: "
+             "created file descriptor %d on %d interfaces\n",
+             i + 1, s, in->endpoints[i].num_interfaces);
     }
 
     return 0;
@@ -302,7 +350,7 @@ void close_sockets(const struct Sockets *in)
     // We don't check errors because we're going to exit anyway.
     int i;
 
-    printf("\nClosing sockets\n");
+    flog("\nClosing sockets\n");
     for (i = 0; i < in->num_sockets; ++i)
         close(in->sockets[i]);
 }
@@ -371,7 +419,7 @@ void poll_sockets(const struct Sockets *in)
                 {
                     read_count = read(fds[i].fd, buffer, READ_BUFFER_SIZE);
                     gettimeofday(&tv, NULL);
-                    printf("%lld.%06lld read %lld bytes%s from socket %d\n",
+                    flog("%lld.%06lld read %lld bytes%s from socket %d\n",
                            (long long)(tv.tv_sec),
                            (long long)(tv.tv_usec),
                            (long long)(read_count),
@@ -414,7 +462,7 @@ int main(int argc, char *argv[])
     if (argc <= 1)
     {
         fprintf(stderr, "Usage: %s "
-                "[*]MULTICAST_IP:PORT:INTERFACE_IP[,INTERFACE_IP...] ...\n",
+                "[*]MULTICAST_IP:PORT:SOURCE_IP:INTERFACE_IP[,INTERFACE_IP...] ...\n",
                 argv[0]);
         fprintf(stderr, "\n");
         fprintf(stderr,
