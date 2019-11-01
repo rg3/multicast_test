@@ -61,6 +61,7 @@ char buf[1024];
 void flog(const char *fmt) {
     printf(fmt);
     fprintf(log_fd, fmt);
+    fflush(log_fd);
 }
 
 /*
